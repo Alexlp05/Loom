@@ -1,0 +1,12 @@
+# === Version API (OpenAI) ===
+openai
+python-dotenv
+
+# === Commun aux deux versions ===
+pyaudio
+numpy
+
+# === Version Locale (Hors-ligne) ===
+faster-whisper
+pyttsx3
+gpt4all

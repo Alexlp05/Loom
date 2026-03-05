@@ -1,0 +1,18 @@
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Fichiers audio temporaires (sessions et tests)
+*.wav
+*.mp3
+
+# Fichiers de sortie de sessions (générés automatiquement)
+outputs/
+
+# Environnement et secrets
+.env
+
+# Modèles téléchargés (volumineux)
+models/
