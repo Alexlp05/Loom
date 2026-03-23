@@ -19,7 +19,9 @@ FLUX :
 import os
 import sys
 import time
+import threading
 import pyttsx3
+import ollama
 
 from RecoVocal.recorder import AudioRecorder
 
@@ -41,47 +43,65 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 AUDIO_FILE = "session_audio_local.wav"
 VAD_THRESHOLD = 500
-VAD_SILENCE_DURATION = 4.0  # secondes de silence avant coupure
+VAD_SILENCE_DURATION = 2.5  # secondes de silence avant coupure (réduit pour + de fluidité)
 
 # ---------------------------------------------------------------------------
 # TTS local (pyttsx3)
 # ---------------------------------------------------------------------------
 
-def _get_french_voice_id() -> str | None:
-    """Retourne l'ID de la première voix française disponible."""
-    tmp = pyttsx3.init()
-    for v in tmp.getProperty("voices"):
+def _init_tts_engine():
+    """Crée et configure un moteur pyttsx3 avec la voix française."""
+    engine = pyttsx3.init()
+    engine.setProperty("rate", 145)
+    for v in engine.getProperty("voices"):
         if "french" in v.name.lower() or "fr_" in v.id.lower() or "fr-" in v.id.lower():
-            tmp.stop()
-            return v.id
-    tmp.stop()
-    return None
+            engine.setProperty("voice", v.id)
+            break
+    return engine
 
-_FRENCH_VOICE_ID = _get_french_voice_id()
+# Moteur TTS persistant (évite pyttsx3.init() à chaque appel → gain ~0.3-0.5s)
+_tts_engine = _init_tts_engine()
 
 
 def speak(text: str) -> None:
     """Lit le texte à voix haute via pyttsx3.
-    
-    Réinitialise le moteur à chaque appel pour contourner le bug Windows
-    où runAndWait() se bloque silencieusement après le premier appel.
+
+    Utilise le moteur persistant. Si runAndWait() échoue (bug Windows),
+    on recrée le moteur en fallback.
     """
+    global _tts_engine
     print(f"\n🤖 IA : {text}\n")
     try:
-        engine = pyttsx3.init()
-        engine.setProperty("rate", 145)
-        if _FRENCH_VOICE_ID:
-            engine.setProperty("voice", _FRENCH_VOICE_ID)
-        engine.say(text)
-        engine.runAndWait()
-        engine.stop()
-    except Exception as e:
-        print(f"⚠️  Erreur TTS : {e}")
+        _tts_engine.say(text)
+        _tts_engine.runAndWait()
+    except Exception:
+        # Fallback : recréer le moteur si le persistant est cassé
+        try:
+            _tts_engine = _init_tts_engine()
+            _tts_engine.say(text)
+            _tts_engine.runAndWait()
+        except Exception as e:
+            print(f"⚠️  Erreur TTS : {e}")
 
 
 # ---------------------------------------------------------------------------
 # Boucle principale
 # ---------------------------------------------------------------------------
+
+def _warmup_ollama(model_name: str) -> None:
+    """Pré-charge le modèle Ollama en mémoire avec un appel à vide."""
+    try:
+        print(f"🔥 Warm-up Ollama ({model_name})…", end=" ", flush=True)
+        ollama.chat(
+            model=model_name,
+            messages=[{"role": "user", "content": "Bonjour"}],
+            keep_alive="10m",
+            options={"num_predict": 1},
+        )
+        print("✓")
+    except Exception as e:
+        print(f"⚠️ Warm-up échoué : {e}")
+
 
 def main() -> None:
     print("=" * 55)
@@ -91,6 +111,10 @@ def main() -> None:
     print("  • Appuyez sur [Entrée] pour démarrer la session.")
     print("  • Pendant l'écoute, appuyez sur [Entrée] pour arrêter.")
     print()
+
+    # Pré-chargement du modèle LLM pendant que l'utilisateur lit les instructions
+    _warmup_ollama("phi3:mini")
+
     input(">>> Appuyez sur [Entrée] pour commencer...")
 
     # Instanciation des deux IA (modèle LLM partagé pour économiser la RAM)
@@ -129,7 +153,6 @@ def main() -> None:
         # ─── Pipeline parallèle ────────────────────────────────────────────
         # Pendant que Whisper transcrit, l'IA génère une question de relance
         # basée sur sa dernière question → latence perçue divisée par ~2.
-        import threading
 
         transcription_result = [None]
         probing_question_result = [None]

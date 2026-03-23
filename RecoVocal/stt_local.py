@@ -4,9 +4,9 @@ import time
 
 # Chargement du modèle au démarrage (peut prendre du temps la première fois)
 print("Chargement du modèle Whisper Local...")
-# "small" offre une bien meilleure précision en français que "base".
+# "medium" offre la meilleure précision en français sur CPU.
 # device="cpu" car on assume pas de GPU NVIDIA, int8 pour la rapidité.
-model = WhisperModel("small", device="cpu", compute_type="int8")
+model = WhisperModel("medium", device="cpu", compute_type="int8")
 print("Modèle Whisper chargé !")
 
 def transcribe_audio_local(file_path):
@@ -18,7 +18,8 @@ def transcribe_audio_local(file_path):
         start_time = time.time()
         # beam_size=1 (greedy) : ~3x plus rapide que beam_size=5, précision légèrement réduite
         # language="fr" : évite la détection automatique de la langue (coûteuse)
-        segments, info = model.transcribe(file_path, beam_size=1, language="fr")
+        # vad_filter=True : filtre les segments silencieux avant transcription (gain ~0.5-1s)
+        segments, info = model.transcribe(file_path, beam_size=1, language="fr", vad_filter=True)
         
         full_text = ""
         for segment in segments:

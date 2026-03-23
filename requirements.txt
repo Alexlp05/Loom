@@ -10,3 +10,18 @@ numpy
 faster-whisper
 pyttsx3
 gpt4all
+
+# === Version V2 (Chat Vocal Fluide) ===
+kokoro>=0.9.4
+sounddevice
+soundfile
+
+# === Serveur (PC) ===
+fastapi
+uvicorn[standard]
+python-multipart
+websockets
+
+# === Client (Raspberry Pi) — installer sur le Pi ===
+# sudo apt-get install python3-pyaudio portaudio19-dev
+# pip3 install pyaudio numpy websocket-client sounddevice soundfile

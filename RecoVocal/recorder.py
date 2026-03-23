@@ -13,7 +13,7 @@ class AudioRecorder:
         self.chunk = 1024
         self.format = pyaudio.paInt16
         self.channels = 1
-        self.rate = 44100
+        self.rate = 16000  # 16kHz = format natif de Whisper, évite le rééchantillonnage
         self.p = pyaudio.PyAudio()
 
     def start_recording(self):

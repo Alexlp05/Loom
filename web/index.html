@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Téléphone Mémoire - Timeline</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-glass"></div>
+    
+    <header>
+        <h1>Mémoires & Histoires</h1>
+        <p>Retracez les souvenirs capturés par le Téléphone Mémoire</p>
+    </header>
+
+    <main>
+        <div class="timeline" id="timeline-container">
+            <!-- Les histoires seront injectées ici par JavaScript -->
+            <div class="loading">Chargement des souvenirs...</div>
+        </div>
+    </main>
+
+    <!-- Modal pour afficher l'histoire complète -->
+    <div id="story-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <div class="modal-header">
+                <h2 id="modal-title">Titre de l'histoire</h2>
+                <div class="theme-badge" id="modal-date">Date</div>
+            </div>
+            <div class="modal-body">
+                <p id="modal-text">Texte de l'histoire...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

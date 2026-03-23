@@ -97,7 +97,13 @@ class ChatLocal:
             resp = ollama.chat(
                 model=self.model,
                 messages=messages,
-                options={"num_predict": max_tokens, "temperature": 0.7},
+                keep_alive="10m",
+                options={
+                    "num_predict": max_tokens,
+                    "temperature": 0.6,
+                    "num_ctx": 1024,
+                    "repeat_penalty": 1.1,
+                },
             )
             text = resp["message"]["content"].strip()
             print("✓")
