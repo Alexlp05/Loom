@@ -51,6 +51,7 @@ DEFAULT_HOOK_POLL_INTERVAL = 0.05
 DEFAULT_HOOK_BOUNCE_TIME = 0.05
 DEFAULT_PLAYBACK_BLOCKSIZE = 2048
 RECONNECT_DELAY_SECONDS = 1.0
+DEFAULT_RATE_CANDIDATES = (48000, 44100, 32000, 24000, 16000, 8000)
 
 
 class HookHangup(Exception):
@@ -110,6 +111,69 @@ def parse_args() -> argparse.Namespace:
 
 def list_devices() -> None:
     print(sd.query_devices())
+
+
+def _normalize_sample_rate(value: float | int | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        rate = int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+    return rate if rate > 0 else None
+
+
+def _query_device_info(device, kind: str) -> dict | None:
+    try:
+        return sd.query_devices(device, kind=kind)
+    except Exception as e:
+        log(f"info device {kind} indisponible: {e}")
+        return None
+
+
+def _iter_rate_candidates(requested_rate: int, device, kind: str):
+    seen: set[int] = set()
+    device_info = _query_device_info(device, kind)
+
+    preferred = [requested_rate]
+    if device_info:
+        default_rate = _normalize_sample_rate(device_info.get("default_samplerate"))
+        if default_rate is not None:
+            preferred.append(default_rate)
+
+    for rate in preferred + list(DEFAULT_RATE_CANDIDATES):
+        normalized = _normalize_sample_rate(rate)
+        if normalized is None or normalized in seen:
+            continue
+        seen.add(normalized)
+        yield normalized
+
+
+def _check_sample_rate(kind: str, device, samplerate: int, channels: int) -> bool:
+    try:
+        if kind == "input":
+            sd.check_input_settings(device=device, samplerate=samplerate, channels=channels, dtype="float32")
+        else:
+            sd.check_output_settings(device=device, samplerate=samplerate, channels=channels, dtype="float32")
+        return True
+    except Exception:
+        return False
+
+
+def resolve_sample_rate(kind: str, device, requested_rate: int, channels: int = DEFAULT_CHANNELS) -> int:
+    for rate in _iter_rate_candidates(requested_rate, device, kind):
+        if _check_sample_rate(kind, device, rate, channels):
+            if rate != requested_rate:
+                log(f"{kind} sample rate ajuste: {requested_rate} -> {rate} Hz")
+            else:
+                log(f"{kind} sample rate confirme: {rate} Hz")
+            return rate
+
+    device_label = device if device is not None else "default"
+    raise RuntimeError(
+        f"Aucune frequence audio compatible pour {kind} sur le device {device_label}. "
+        "Lance 'python client_pi.py --list-devices' pour inspecter la carte."
+    )
 
 
 def _ensure_2d(audio: np.ndarray) -> np.ndarray:
@@ -404,6 +468,9 @@ def main() -> None:
     if args.list_devices:
         list_devices()
         return
+
+    args.capture_rate = resolve_sample_rate("input", args.input_device, args.capture_rate)
+    args.playback_rate = resolve_sample_rate("output", args.output_device, args.playback_rate)
 
     try:
         asyncio.run(monitor_hook(args))

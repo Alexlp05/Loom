@@ -459,6 +459,9 @@ async def websocket_chat(ws: WebSocket):
             # Recevoir un message
             raw = await ws.receive()
 
+            if raw.get("type") == "websocket.disconnect":
+                raise WebSocketDisconnect()
+
             # Message texte (JSON)
             if "text" in raw:
                 try:
@@ -530,6 +533,13 @@ async def websocket_chat(ws: WebSocket):
     except WebSocketDisconnect:
         print(f"🔌 WebSocket déconnecté (session {session.session_id[:8]})")
         _cleanup_session(session.session_id)
+    except RuntimeError as e:
+        if "disconnect message has been received" in str(e):
+            print(f"🔌 WebSocket déconnecté proprement (session {session.session_id[:8]})")
+            _cleanup_session(session.session_id)
+        else:
+            print(f"⚠️ WebSocket runtime error : {e}")
+            _cleanup_session(session.session_id)
     except Exception as e:
         print(f"⚠️ WebSocket erreur : {e}")
         _cleanup_session(session.session_id)
