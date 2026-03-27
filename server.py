@@ -34,6 +34,7 @@ import random
 import asyncio
 import tempfile
 import uuid
+import base64
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -59,7 +60,7 @@ from database import init_db, insert_story, get_all_stories_chronological
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-OLLAMA_MODEL = "qwen2.5:3b"
+OLLAMA_MODEL = "mistral:latest"
 
 SYSTEM_PROMPT = (
     "Tu es un ami chaleureux et curieux. Tu tutoies toujours. "
@@ -221,6 +222,123 @@ def _llm_stream(history: list[dict]):
 _sentence_end_re = re.compile(r'[.!?…»]\s*$|[.!?…»]\s')
 
 
+async def _text_to_wav_bytes_async(text: str) -> bytes:
+    """Version async pour ne pas bloquer la boucle event-loop pendant le TTS."""
+    return await asyncio.to_thread(_text_to_wav_bytes, text)
+
+
+async def _send_end_turn(ws: WebSocket):
+    """Envoie le marqueur de fin de tour avec log uniforme."""
+    await ws.send_text(json.dumps({"type": "end_turn"}))
+    print("   ✅ end_turn envoyé")
+
+
+def _decode_audio_message(msg: dict) -> bytes | None:
+    """Decode un payload audio JSON pour compatibilite client."""
+    data = msg.get("data")
+    if not data:
+        return None
+
+    if isinstance(data, str):
+        try:
+            return base64.b64decode(data)
+        except Exception as e:
+            print(f"   ⚠️ Audio JSON invalide: {e}")
+            return None
+
+    if isinstance(data, list):
+        try:
+            return bytes(data)
+        except Exception as e:
+            print(f"   ⚠️ Audio liste invalide: {e}")
+            return None
+
+    print("   ⚠️ Format audio JSON non supporte.")
+    return None
+
+
+async def _handle_audio_turn(ws: WebSocket, session: Session, audio_data: bytes):
+    """Traite un tour utilisateur complet sans casser le protocole audio existant."""
+    if not session.active:
+        print("   ⚠️ Audio ignoré : session inactive.")
+        return
+
+    audio_size = len(audio_data or b"")
+    print(f"   🎙️ Audio reçu : {audio_size} octets")
+
+    if not audio_data:
+        print("   ⚠️ Audio vide.")
+        no_hear = await _text_to_wav_bytes_async("Tu peux répéter ?")
+        if no_hear:
+            print(f"   🔊 Chunk TTS généré : {len(no_hear)} octets")
+            await ws.send_bytes(no_hear)
+            print(f"   📤 Chunk TTS envoyé : {len(no_hear)} octets")
+        await _send_end_turn(ws)
+        return
+
+    t_total = time.time()
+
+    filler_audio = _get_random_filler_audio()
+    if filler_audio:
+        await ws.send_bytes(filler_audio)
+        print(f"   📤 Filler envoyé : {len(filler_audio)} octets")
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = tmp.name
+            tmp.write(audio_data)
+
+        user_text = await asyncio.to_thread(_transcribe_fast, tmp_path)
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    if not user_text:
+        print("   ⚠️ STT vide.")
+        no_hear = await _text_to_wav_bytes_async("Tu peux repeter ?")
+        if no_hear:
+            print(f"   🔊 Chunk TTS généré : {len(no_hear)} octets")
+            await ws.send_bytes(no_hear)
+            print(f"   📤 Chunk TTS envoyé : {len(no_hear)} octets")
+        await _send_end_turn(ws)
+        return
+
+    print(f"   📝 STT : \"{user_text}\"")
+    session.history.append({"role": "user", "content": user_text})
+
+    full_response = ""
+    buffer = ""
+
+    for token in _llm_stream(session.history):
+        full_response += token
+        buffer += token
+
+        if len(buffer.strip()) >= 5 and _sentence_end_re.search(buffer):
+            audio_chunk = await _text_to_wav_bytes_async(buffer.strip())
+            if audio_chunk:
+                print(f"   🔊 Chunk TTS généré : {len(audio_chunk)} octets")
+                await ws.send_bytes(audio_chunk)
+                print(f"   📤 Chunk TTS envoyé : {len(audio_chunk)} octets")
+            buffer = ""
+
+    if buffer.strip():
+        audio_chunk = await _text_to_wav_bytes_async(buffer.strip())
+        if audio_chunk:
+            print(f"   🔊 Chunk TTS généré : {len(audio_chunk)} octets")
+            await ws.send_bytes(audio_chunk)
+            print(f"   📤 Chunk TTS envoyé : {len(audio_chunk)} octets")
+
+    session.history.append({"role": "assistant", "content": full_response})
+    dt = time.time() - t_total
+    print(f"   🤖 [{dt:.1f}s total] : {full_response[:80]}")
+
+    await _send_end_turn(ws)
+
+
 # ── Pipeline post-session ────────────────────────────────────────────────────
 
 def _build_transcript(history: list[dict]) -> str:
@@ -321,7 +439,8 @@ async def websocket_chat(ws: WebSocket):
     Protocole :
         Client → Serveur :
             {"type": "start"}                    → démarrer session
-            {"type": "audio", "data": "<base64>"} → audio de l'utilisateur
+            {"type": "audio", "data": "<base64>"} → audio WAV de l'utilisateur
+            bytes (audio WAV brut)               → audio WAV de l'utilisateur
             {"type": "stop"}                     → fin de session
 
         Serveur → Client :
@@ -342,7 +461,11 @@ async def websocket_chat(ws: WebSocket):
 
             # Message texte (JSON)
             if "text" in raw:
-                msg = json.loads(raw["text"])
+                try:
+                    msg = json.loads(raw["text"])
+                except json.JSONDecodeError:
+                    print("   ⚠️ Message JSON illisible, ignoré.")
+                    continue
                 msg_type = msg.get("type")
 
                 if msg_type == "start":
@@ -353,8 +476,9 @@ async def websocket_chat(ws: WebSocket):
                     session.history.append({"role": "assistant", "content": question})
                     print(f"🟢 Session {session.session_id[:8]} — {question}")
 
-                    audio = _text_to_wav_bytes(question)
-                    await ws.send_bytes(audio)
+                    audio = await _text_to_wav_bytes_async(question)
+                    if audio:
+                        await ws.send_bytes(audio)
 
                 elif msg_type == "stop":
                     # Fin de session
@@ -366,7 +490,7 @@ async def websocket_chat(ws: WebSocket):
                     story = ""
                     try:
                         from TextToStory.story_generator_local import generate_story_local
-                        story = generate_story_local(transcript) or ""
+                        story = await asyncio.to_thread(generate_story_local, transcript) or ""
                     except Exception as e:
                         print(f"   ⚠️ Story generation error: {e}")
 
@@ -381,77 +505,27 @@ async def websocket_chat(ws: WebSocket):
                     }))
 
                     # Audio de clôture
-                    closing = _text_to_wav_bytes(
+                    closing = await _text_to_wav_bytes_async(
                         "Merci pour ce beau partage. Ton histoire a été enregistrée. À bientôt !"
                     )
-                    await ws.send_bytes(closing)
+                    if closing:
+                        await ws.send_bytes(closing)
                     print(f"🔴 Session {session.session_id[:8]} terminée")
 
                     # Nettoyer la session
                     _cleanup_session(session.session_id)
 
+                elif msg_type == "audio":
+                    audio_data = _decode_audio_message(msg)
+                    if audio_data is None:
+                        audio_data = b""
+                    await _handle_audio_turn(ws, session, audio_data)
+                else:
+                    print(f"   ⚠️ Message WebSocket inconnu: {msg_type!r}")
+
             # Message binaire (audio WAV brut)
             elif "bytes" in raw:
-                if not session.active:
-                    continue
-
-                audio_data = raw["bytes"]
-                t_total = time.time()
-
-                # ① Envoyer immédiatement un filler audio (latence perçue ~0)
-                filler_audio = _get_random_filler_audio()
-                if filler_audio:
-                    await ws.send_bytes(filler_audio)
-
-                # ② STT dans un thread (ne bloque pas la boucle async)
-                tmp_path = None
-                try:
-                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                        tmp_path = tmp.name
-                        tmp.write(audio_data)
-
-                    user_text = await asyncio.to_thread(_transcribe_fast, tmp_path)
-                finally:
-                    if tmp_path:
-                        try:
-                            os.unlink(tmp_path)
-                        except Exception:
-                            pass
-
-                if not user_text:
-                    no_hear = _text_to_wav_bytes("Tu peux répéter ?")
-                    await ws.send_bytes(no_hear)
-                    continue
-
-                # ③ LLM streaming → TTS par phrase → envoi immédiat
-                session.history.append({"role": "user", "content": user_text})
-
-                full_response = ""
-                buffer = ""
-
-                for token in _llm_stream(session.history):
-                    full_response += token
-                    buffer += token
-
-                    # Dès qu'une phrase est complète → TTS + envoi
-                    if len(buffer.strip()) >= 5 and _sentence_end_re.search(buffer):
-                        audio_chunk = await asyncio.to_thread(_text_to_wav_bytes, buffer.strip())
-                        if audio_chunk:
-                            await ws.send_bytes(audio_chunk)
-                        buffer = ""
-
-                # Envoyer le reste
-                if buffer.strip():
-                    audio_chunk = await asyncio.to_thread(_text_to_wav_bytes, buffer.strip())
-                    if audio_chunk:
-                        await ws.send_bytes(audio_chunk)
-
-                session.history.append({"role": "assistant", "content": full_response})
-                dt = time.time() - t_total
-                print(f"   🤖 [{dt:.1f}s total] : {full_response[:80]}")
-
-                # Signal de fin de tour → le client sait qu'il peut réécouter
-                await ws.send_text(json.dumps({"type": "end_turn"}))
+                await _handle_audio_turn(ws, session, raw["bytes"])
 
     except WebSocketDisconnect:
         print(f"🔌 WebSocket déconnecté (session {session.session_id[:8]})")
@@ -613,4 +687,4 @@ if __name__ == "__main__":
     print("  Timeline   : http://IP:8000/ (interface web)")
     print()
 
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
