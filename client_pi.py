@@ -468,12 +468,39 @@ async def run_phone_session(args: argparse.Namespace, hook: HookSwitch) -> None:
     except OSError as e:
         log(f"erreur reseau/audio: {e}")
     finally:
-        if ws is not None:
+        if ws is not None and not ws.closed:
             try:
-                if not ws.closed:
-                    await ws.close(code=1000, reason="hook on")
-            except Exception:
-                pass
+                # Envoyer stop → déclenche génération transcript + histoire côté serveur
+                log("envoi stop au serveur pour declencher la generation...")
+                await ws.send(json.dumps({"type": "stop"}))
+
+                # Attendre le transcript JSON et l'audio de clôture (timeout 120s)
+                while True:
+                    try:
+                        msg = await asyncio.wait_for(ws.recv(), timeout=120.0)
+                    except asyncio.TimeoutError:
+                        log("timeout attente cloture serveur")
+                        break
+                    if isinstance(msg, bytes):
+                        # Audio de clôture → toujours jouer meme si raccroche
+                        log(f"audio de cloture recu ({len(msg)} octets)")
+                        mock = MockHookSwitch()
+                        await asyncio.to_thread(
+                            play_wav_bytes_interruptible, msg, mock, args.output_device, args.playback_rate
+                        )
+                    elif isinstance(msg, str):
+                        try:
+                            payload = json.loads(msg)
+                        except json.JSONDecodeError:
+                            continue
+                        if payload.get("type") == "transcript":
+                            story = payload.get("story", "")
+                            log(f"histoire generee et sauvegardee ({len(story)} caracteres)")
+                        break  # transcript recu → fermeture
+
+                await ws.close(code=1000, reason="session terminee")
+            except Exception as e:
+                log(f"erreur fermeture propre: {e}")
         if session_open:
             log("session fermee")
 
