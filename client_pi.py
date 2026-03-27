@@ -52,6 +52,7 @@ DEFAULT_HOOK_BOUNCE_TIME = 0.05
 DEFAULT_PLAYBACK_BLOCKSIZE = 2048
 RECONNECT_DELAY_SECONDS = 1.0
 DEFAULT_RATE_CANDIDATES = (48000, 44100, 32000, 24000, 16000, 8000)
+DEFAULT_OFF_HOOK_WHEN_PRESSED = True
 
 
 class HookHangup(Exception):
@@ -61,16 +62,17 @@ class HookHangup(Exception):
 class HookSwitch:
     """Hook du combine.
 
-    Avec COM -> GND et NO -> GPIO, un etat "pressed" signifie combine pose.
+    Le sens exact du contact depend du montage mecanique du hook.
     """
 
-    def __init__(self, pin: int, bounce_time: float):
+    def __init__(self, pin: int, bounce_time: float, off_hook_when_pressed: bool):
         if Button is None:
             raise RuntimeError("gpiozero est requis sur la Raspberry Pi (sudo apt install python3-gpiozero)")
         self._button = Button(pin, pull_up=True, bounce_time=bounce_time)
+        self._off_hook_when_pressed = off_hook_when_pressed
 
     def is_off_hook(self) -> bool:
-        return not self._button.is_pressed
+        return self._button.is_pressed if self._off_hook_when_pressed else not self._button.is_pressed
 
     def close(self) -> None:
         self._button.close()
@@ -93,6 +95,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Client Pi pour Telephone Memoire")
     parser.add_argument("--server", default=DEFAULT_SERVER_URL, help="URL WebSocket du serveur")
     parser.add_argument("--hook-pin", type=int, default=DEFAULT_HOOK_PIN, help="GPIO du hook")
+    parser.add_argument(
+        "--off-hook-when-pressed",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_OFF_HOOK_WHEN_PRESSED,
+        help="Considere le combine comme decroche quand le contact GPIO est appuye",
+    )
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD, help="Seuil RMS de detection de voix")
     parser.add_argument("--silence-seconds", type=float, default=DEFAULT_SILENCE_SECONDS, help="Silence avant fin d'enregistrement")
     parser.add_argument("--max-seconds", type=float, default=DEFAULT_MAX_SECONDS, help="Duree max d'un tour de parole")
@@ -442,8 +450,9 @@ async def run_phone_session(args: argparse.Namespace, hook: HookSwitch) -> None:
 
 
 async def monitor_hook(args: argparse.Namespace) -> None:
-    hook = HookSwitch(args.hook_pin, DEFAULT_HOOK_BOUNCE_TIME)
+    hook = HookSwitch(args.hook_pin, DEFAULT_HOOK_BOUNCE_TIME, args.off_hook_when_pressed)
     last_off_hook = hook.is_off_hook()
+    log(f"hook config: off_hook_when_pressed={args.off_hook_when_pressed}")
     log(f"hook initial: {'decroche' if last_off_hook else 'raccroche'}")
 
     try:
