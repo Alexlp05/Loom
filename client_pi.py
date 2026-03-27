@@ -348,14 +348,21 @@ async def receive_message_with_hook(ws, hook: HookSwitch):
 
 
 async def receive_opening_prompt(ws, hook: HookSwitch, output_device, playback_rate: int) -> None:
+    """Reçoit et joue tous les chunks audio de la question d'ouverture.
+
+    Attend le message `end_turn` du serveur avant de rendre la main,
+    de sorte que le micro ne s'ouvre qu'une fois toute la question jouée.
+    """
     while True:
         message = await receive_message_with_hook(ws, hook)
+
         if isinstance(message, bytes):
             log(f"chunk audio recu ({len(message)} octets)")
             played = await asyncio.to_thread(play_wav_bytes_interruptible, message, hook, output_device, playback_rate)
             if not played:
                 raise HookHangup
-            return
+            # Ne pas retourner ici — continuer à recevoir jusqu'au end_turn
+            continue
 
         try:
             payload = json.loads(message)
@@ -364,6 +371,10 @@ async def receive_opening_prompt(ws, hook: HookSwitch, output_device, playback_r
             continue
 
         msg_type = payload.get("type")
+        if msg_type == "end_turn":
+            log("end_turn ouverture recu")
+            return
+
         log(f"message JSON ignore pendant ouverture: {msg_type!r}")
 
 
