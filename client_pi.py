@@ -25,6 +25,7 @@ import sys
 import time
 import wave
 import threading
+import queue
 
 import numpy as np
 import sounddevice as sd
@@ -103,45 +104,78 @@ def record_until_silence(threshold=VAD_THRESHOLD, silence_duration=VAD_SILENCE_D
     return buf.read()
 
 
-# ── Lecture audio ────────────────────────────────────────────────────────────
+# ── Système de lecture audio (thread-safe) ───────────────────────────────────
 
-# File d'attente pour jouer les chunks audio séquentiellement
-_audio_queue: list[bytes] = []
-_audio_lock = threading.Lock()
-_playing = threading.Event()
+# Sentinel pour signaler l'arrêt du thread
+_STOP_SENTINEL = object()
+
+# Queue thread-safe + event de synchronisation
+_audio_q: queue.Queue = queue.Queue()
+_playback_idle = threading.Event()   # Set quand la queue est vide et rien ne joue
+_playback_idle.set()
 
 
-def play_wav_bytes(wav_bytes: bytes):
-    """Joue un buffer WAV immédiatement."""
+def _player_thread():
+    """Thread dédié qui consomme la queue audio en continu."""
+    while True:
+        item = _audio_q.get()  # bloque jusqu'au prochain élément
+        if item is _STOP_SENTINEL:
+            _audio_q.task_done()
+            break
+        _playback_idle.clear()
+        _play_wav_bytes(item)
+        _audio_q.task_done()
+        # Si la queue est vide après ce chunk, signaler idle
+        if _audio_q.empty():
+            _playback_idle.set()
+
+
+def _play_wav_bytes(wav_bytes: bytes):
+    """Joue un buffer WAV (appelé uniquement par le thread player)."""
     if not wav_bytes:
         return
     try:
         buf = io.BytesIO(wav_bytes)
         audio_data, sample_rate = sf.read(buf)
         sd.play(audio_data, samplerate=sample_rate)
-        sd.wait()
+        sd.wait()  # bloque jusqu'à fin du playback
     except Exception as e:
         print(f"⚠️  Erreur audio : {e}")
 
 
 def enqueue_audio(wav_bytes: bytes):
-    """Ajoute un chunk audio à la file et le joue dès que possible."""
-    with _audio_lock:
-        _audio_queue.append(wav_bytes)
-    if not _playing.is_set():
-        _playing.set()
-        threading.Thread(target=_play_queue, daemon=True).start()
+    """Ajoute un chunk audio à la queue pour lecture séquentielle."""
+    if wav_bytes:
+        _playback_idle.clear()
+        _audio_q.put(wav_bytes)
 
 
-def _play_queue():
-    """Thread qui joue les audios de la file séquentiellement."""
+def wait_until_playback_done(timeout: float = 60.0):
+    """Bloque jusqu'à ce que tous les chunks en queue soient joués."""
+    _audio_q.join()  # attend que tous les éléments soient traités
+    _playback_idle.wait(timeout=timeout)
+
+
+def flush_audio():
+    """Vide la queue audio et stoppe le playback en cours."""
+    # Vider la queue
     while True:
-        with _audio_lock:
-            if not _audio_queue:
-                _playing.clear()
-                return
-            chunk = _audio_queue.pop(0)
-        play_wav_bytes(chunk)
+        try:
+            _audio_q.get_nowait()
+            _audio_q.task_done()
+        except queue.Empty:
+            break
+    # Stopper le son en cours
+    try:
+        sd.stop()
+    except Exception:
+        pass
+    _playback_idle.set()
+
+
+# Démarrer le thread player au chargement du module
+_player = threading.Thread(target=_player_thread, daemon=True)
+_player.start()
 
 
 # ── WebSocket Client ─────────────────────────────────────────────────────────
@@ -182,18 +216,25 @@ def main():
     # Démarrer la session
     ws.send(json.dumps({"type": "start"}))
 
-    # Recevoir et jouer la question d'ouverture
+    # ── Recevoir et jouer la question d'ouverture ────────────────────
     print("🤖 L'IA parle…")
     opening = ws.recv()
     if isinstance(opening, bytes):
-        play_wav_bytes(opening)
+        enqueue_audio(opening)
+        wait_until_playback_done()  # attendre la fin AVANT d'écouter
+    # Petit délai pour laisser le silence s'installer
+    time.sleep(0.3)
 
-    # Boucle de conversation
+    # ── Boucle de conversation ───────────────────────────────────────
     turn_count = 0
     try:
         while True:
             turn_count += 1
             print(f"\n🎙️  Tour {turn_count} — À vous…")
+
+            # S'assurer que rien ne joue avant d'ouvrir le micro
+            flush_audio()
+            time.sleep(0.15)  # petit silence de sécurité
 
             # Enregistrer
             wav_bytes = record_until_silence(threshold=args.threshold)
@@ -205,24 +246,21 @@ def main():
             t0 = time.time()
             ws.send_binary(wav_bytes)
 
-            # Recevoir les chunks audio de réponse (filler + réponse streamée)
-            # Le serveur envoie plusieurs messages binaires (audio) successifs.
-            # Convention : le dernier chunk est suivi d'un silence dans la boucle.
+            # ── Réception streaming des chunks audio ─────────────────
             print("🤖 L'IA parle…", flush=True)
 
-            # Réception et lecture en streaming
             ws.settimeout(30)  # timeout par message
             while True:
                 try:
                     data = ws.recv()
                     if isinstance(data, bytes):
-                        # Chunk audio → jouer immédiatement
-                        play_wav_bytes(data)
+                        # Chunk audio → enqueue (joué en background, recv continue)
+                        enqueue_audio(data)
                     elif isinstance(data, str):
                         # Message JSON
                         msg = json.loads(data)
                         if msg.get("type") == "end_turn":
-                            # Fin du tour → retour à l'écoute
+                            # Fin du tour → attendre que tout l'audio soit joué
                             break
                         elif msg.get("type") == "transcript":
                             print("\n📝 Transcript :")
@@ -234,6 +272,10 @@ def main():
                 except websocket.WebSocketTimeoutException:
                     break
 
+            # Attendre que TOUS les chunks soient joués avant le prochain tour
+            wait_until_playback_done()
+            time.sleep(0.3)  # silence avant de réécouter
+
             dt = time.time() - t0
             print(f"   ⏱️  Tour complet : {dt:.1f}s")
 
@@ -243,7 +285,7 @@ def main():
     except KeyboardInterrupt:
         print("\n\n✋ Fin de session…")
 
-    # Arrêter la session
+    # ── Arrêter la session ───────────────────────────────────────────
     try:
         ws.send(json.dumps({"type": "stop"}))
         # Recevoir le transcript + audio de clôture
@@ -252,7 +294,7 @@ def main():
             try:
                 data = ws.recv()
                 if isinstance(data, bytes):
-                    play_wav_bytes(data)
+                    enqueue_audio(data)
                 elif isinstance(data, str):
                     msg = json.loads(data)
                     if msg.get("type") == "transcript":
@@ -264,6 +306,10 @@ def main():
                     break
             except websocket.WebSocketTimeoutException:
                 break
+
+        # Attendre la fin de l'audio de clôture
+        wait_until_playback_done()
+
     except Exception as e:
         print(f"⚠️  Erreur fermeture : {e}")
     finally:
