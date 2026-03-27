@@ -30,7 +30,6 @@ import io
 import re
 import json
 import time
-import random
 import asyncio
 import tempfile
 import uuid
@@ -83,17 +82,30 @@ SYSTEM_PROMPT = (
     "- Réponds en français uniquement."
 )
 
-OPENING_QUESTIONS = [
-    "Raconte-moi, où est-ce que tu as grandi ? C'était comment ton quartier ?",
-    "Tu te souviens de ton tout premier jour d'école ? Comment ça s'est passé ?",
-    "C'était quoi ton premier travail ? Comment tu l'as trouvé ?",
-    "Parle-moi de ta famille quand tu étais petit. Vous étiez nombreux ?",
-    "Tu as fait un voyage qui t'a vraiment marqué dans ta vie ?",
-    "Tu avais une passion ou un hobby quand tu étais jeune ?",
-    "C'était comment les fêtes de famille chez toi ? Noël, les anniversaires ?",
-    "Tu te souviens d'un ami d'enfance qui comptait beaucoup pour toi ?",
-    "Raconte-moi un souvenir de vacances qui te rend heureux quand tu y repenses.",
-]
+def _generate_opening_question() -> str:
+    """Génère dynamiquement la question d'ouverture via le LLM."""
+    opening_prompt = (
+        "Tu démarres une conversation pour recueillir un souvenir. "
+        "Pose UNE seule question d'ouverture courte et naturelle pour inviter la personne à se confier. "
+        "Varie chaque fois : infance, famille, travail, voyage, amis, fêtes… "
+        "1 à 2 phrases max. Pas de liste."
+    )
+    try:
+        resp = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": opening_prompt},
+            ],
+            keep_alive="10m",
+            options={"num_predict": 60, "temperature": 1.0},
+        )
+        question = resp["message"]["content"].strip()
+        print(f"   🎲 Question générée : {question}")
+        return question
+    except Exception as e:
+        print(f"   ⚠️ Erreur génération question : {e}")
+        return "Raconte-moi, tu as un souvenir qui te tient à cœur ?"
 
 # Phrases de remplissage — jouées pendant que le serveur traite
 # (donne l'illusion que l'IA "réfléchit" naturellement)
@@ -475,7 +487,7 @@ async def websocket_chat(ws: WebSocket):
                     # Démarrer la session
                     session.history = [{"role": "system", "content": SYSTEM_PROMPT}]
                     session.active = True
-                    question = random.choice(OPENING_QUESTIONS)
+                    question = _generate_opening_question()
                     session.history.append({"role": "assistant", "content": question})
                     print(f"🟢 Session {session.session_id[:8]} — {question}")
 
@@ -558,7 +570,7 @@ async def start_session_http():
     session = _get_or_create_session(_HTTP_SESSION_ID)
     session.history = [{"role": "system", "content": SYSTEM_PROMPT}]
     session.active = True
-    question = random.choice(OPENING_QUESTIONS)
+    question = _generate_opening_question()
     session.history.append({"role": "assistant", "content": question})
     print(f"🟢 Session HTTP — {question}")
     audio_bytes = _text_to_wav_bytes(question)
