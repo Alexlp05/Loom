@@ -482,6 +482,7 @@ async def websocket_chat(ws: WebSocket):
                     audio = await _text_to_wav_bytes_async(question)
                     if audio:
                         await ws.send_bytes(audio)
+                    await _send_end_turn(ws)  # signaler la fin de la question d'ouverture
 
                 elif msg_type == "stop":
                     # Fin de session

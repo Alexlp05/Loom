@@ -60,10 +60,7 @@ class HookHangup(Exception):
 
 
 class HookSwitch:
-    """Hook du combine.
-
-    Le sens exact du contact depend du montage mecanique du hook.
-    """
+    """Hook du combine (necessite gpiozero sur Raspberry Pi)."""
 
     def __init__(self, pin: int, bounce_time: float, off_hook_when_pressed: bool):
         if Button is None:
@@ -76,6 +73,16 @@ class HookSwitch:
 
     def close(self) -> None:
         self._button.close()
+
+
+class MockHookSwitch:
+    """Hook factice pour tests sans Raspberry Pi (combine toujours decroche)."""
+
+    def is_off_hook(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        pass
 
 
 def log(message: str) -> None:
@@ -198,7 +205,8 @@ def resample_audio(audio: np.ndarray, source_rate: int, target_rate: int) -> np.
 
     source_length = audio.shape[0]
     target_length = max(1, round(source_length * target_rate / source_rate))
-    source_positions = np.linspace(0.0, source_length - 1, num=source_length, dtype=np.float64)
+    # Positions dans l'espace source pour chaque echantillon cible
+    source_positions = np.arange(source_length, dtype=np.float64)
     target_positions = np.linspace(0.0, source_length - 1, num=target_length, dtype=np.float64)
 
     resampled = np.empty((target_length, audio.shape[1]), dtype=np.float32)
@@ -278,6 +286,10 @@ def record_until_silence(
 
     log("debut enregistrement")
 
+    # Apres combien de blocs sans voix on abandonne (defaut 10s)
+    no_voice_limit = max(1, int(5.0 / block_duration))
+    no_voice_blocks = 0
+
     with sd.InputStream(
         samplerate=capture_rate,
         channels=channels,
@@ -300,10 +312,16 @@ def record_until_silence(
             preroll.append(block.copy())
 
             if not speaking:
+                no_voice_blocks += 1
                 if energy >= threshold:
                     speaking = True
+                    no_voice_blocks = 0
                     captured.extend(list(preroll))
                     silent_blocks = 0
+                elif no_voice_blocks >= no_voice_limit:
+                    # Personne ne parle depuis 10s → on abandonne ce tour
+                    log("fin enregistrement: silence prolonge, abandon")
+                    return None, "no_voice"
             else:
                 captured.append(block.copy())
                 if energy < threshold:
@@ -493,11 +511,25 @@ def main() -> None:
     args.playback_rate = resolve_sample_rate("output", args.output_device, args.playback_rate)
 
     try:
-        asyncio.run(monitor_hook(args))
+        if Button is None:
+            # Pas de GPIO disponible → mode test sans Pi (combine toujours decroche)
+            log("gpiozero absent : mode test sans GPIO (MockHookSwitch)")
+            asyncio.run(_run_mock(args))
+        else:
+            asyncio.run(monitor_hook(args))
     except KeyboardInterrupt:
         log("arret demande par l'utilisateur")
     except RuntimeError as e:
         log(str(e))
+
+
+async def _run_mock(args: argparse.Namespace) -> None:
+    """Boucle de session avec hook factice (tests sans Raspberry Pi)."""
+    hook = MockHookSwitch()
+    while True:
+        await run_phone_session(args, hook)
+        log("session terminee. Ctrl+C pour quitter.")
+        await asyncio.sleep(RECONNECT_DELAY_SECONDS)
 
 
 if __name__ == "__main__":
