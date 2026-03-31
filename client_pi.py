@@ -38,8 +38,10 @@ DEFAULT_SERVER_URL = "ws://127.0.0.1:8000/ws"
 DEFAULT_HOOK_PIN = 17
 DEFAULT_SEND_MODE = "raw"
 DEFAULT_THRESHOLD = 0.015
-DEFAULT_SILENCE_SECONDS = 3.5
+DEFAULT_SILENCE_SECONDS = 4.0
 DEFAULT_MAX_SECONDS = 30.0
+DEFAULT_NOISE_MULTIPLIER = 2.5
+DEFAULT_SILENCE_MULTIPLIER = 1.4
 DEFAULT_CAPTURE_RATE = 48000
 DEFAULT_SERVER_RATE = 16000
 DEFAULT_PLAYBACK_RATE = 48000
@@ -283,6 +285,9 @@ def record_until_silence(
     captured: list[np.ndarray] = []
     speaking = False
     silent_blocks = 0
+    noise_floor = 0.0
+    adaptive_threshold = threshold
+    silence_threshold = threshold
 
     log("debut enregistrement")
 
@@ -311,20 +316,35 @@ def record_until_silence(
             energy = _rms(mono)
             preroll.append(block.copy())
 
+            if noise_floor <= 0.0:
+                noise_floor = energy
+            else:
+                noise_floor = (noise_floor * 0.9) + (energy * 0.1)
+
+            adaptive_threshold = max(threshold, noise_floor * DEFAULT_NOISE_MULTIPLIER)
+            silence_threshold = max(threshold * 0.8, noise_floor * DEFAULT_SILENCE_MULTIPLIER)
+
             if not speaking:
                 no_voice_blocks += 1
-                if energy >= threshold:
+                if energy >= adaptive_threshold:
                     speaking = True
                     no_voice_blocks = 0
                     captured.extend(list(preroll))
                     silent_blocks = 0
+                    log(
+                        "voix detectee: "
+                        f"energy={energy:.4f}, "
+                        f"noise_floor={noise_floor:.4f}, "
+                        f"start_threshold={adaptive_threshold:.4f}, "
+                        f"silence_threshold={silence_threshold:.4f}"
+                    )
                 elif no_voice_blocks >= no_voice_limit:
                     # Personne ne parle depuis 10s → on abandonne ce tour
                     log("fin enregistrement: silence prolonge, abandon")
                     return None, "no_voice"
             else:
                 captured.append(block.copy())
-                if energy < threshold:
+                if energy < silence_threshold:
                     silent_blocks += 1
                 else:
                     silent_blocks = 0
@@ -468,7 +488,7 @@ async def run_phone_session(args: argparse.Namespace, hook: HookSwitch) -> None:
     except OSError as e:
         log(f"erreur reseau/audio: {e}")
     finally:
-        if ws is not None and not ws.closed:
+        if ws is not None:
             try:
                 # Envoyer stop → déclenche génération transcript + histoire côté serveur
                 log("envoi stop au serveur pour declencher la generation...")
@@ -497,10 +517,15 @@ async def run_phone_session(args: argparse.Namespace, hook: HookSwitch) -> None:
                             story = payload.get("story", "")
                             log(f"histoire generee et sauvegardee ({len(story)} caracteres)")
                         break  # transcript recu → fermeture
-
-                await ws.close(code=1000, reason="session terminee")
+            except ConnectionClosed:
+                log("serveur deja deconnecte pendant la fermeture")
             except Exception as e:
                 log(f"erreur fermeture propre: {e}")
+            finally:
+                try:
+                    await ws.close(code=1000, reason="session terminee")
+                except Exception:
+                    pass
         if session_open:
             log("session fermee")
 

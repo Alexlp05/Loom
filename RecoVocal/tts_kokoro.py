@@ -17,8 +17,8 @@ import threading
 # ── Chargement paresseux du pipeline Kokoro ──────────────────────────────────
 
 _pipeline = None
-_VOICE = "ff_siwis"          # Voix française féminine
-_LANG_CODE = "f"             # 'f' = French fr-fr
+_VOICE = "af_heart"          # American English feminine voice
+_LANG_CODE = "a"             # 'a' = American English
 _SAMPLE_RATE = 24000         # Kokoro génère à 24 kHz
 _SPEED = 1.0
 
@@ -126,7 +126,7 @@ def _fallback_speak(text: str) -> None:
         engine = pyttsx3.init()
         engine.setProperty("rate", 155)
         for v in engine.getProperty("voices"):
-            if "french" in v.name.lower() or "fr_" in v.id.lower() or "fr-" in v.id.lower():
+            if "english" in v.name.lower() or "en_" in v.id.lower() or "en-" in v.id.lower():
                 engine.setProperty("voice", v.id)
                 break
         engine.say(text)
@@ -139,6 +139,6 @@ def _fallback_speak(text: str) -> None:
 # ── Test rapide ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("Test Kokoro TTS en français…")
-    speak("Bonjour ! Je suis ravie de vous rencontrer. Racontez-moi un souvenir qui vous tient à cœur.")
+    print("Test Kokoro TTS in English…")
+    speak("Hello. It is lovely to meet you. Tell me about a memory that matters to you.")
     print("✅ Test terminé.")

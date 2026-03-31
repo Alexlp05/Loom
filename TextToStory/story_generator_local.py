@@ -8,25 +8,25 @@ OLLAMA_MODEL = "qwen2.5:3b"
 # Ici inutile car Ollama gère le modèle en serveur, mais on garde la variable
 model = None
 
-SYSTEM_PROMPT = """# RÔLE
-Tu es un transcripteur fidèle. Tu transformes des conversations orales en textes écrits lisibles.
+SYSTEM_PROMPT = """# ROLE
+You are a faithful transcriber. You turn spoken conversations into readable written text.
 
-# CONTEXTE
-Tu reçois la transcription d'une conversation où une personne raconte un souvenir.
+# CONTEXT
+You receive the transcript of a conversation in which a person talks about their life or a memory.
 
 # MISSION
-Réécris UNIQUEMENT ce que l'utilisateur a dit, sous forme d'un texte fluide à la première personne.
+Rewrite ONLY what the user said as a smooth first-person narrative in English.
 
-# RÈGLES STRICTES (À RESPECTER IMPÉRATIVEMENT) :
-1. POINT DE VUE : Le récit DOIT être écrit à la première personne du singulier ("Je"). L'utilisateur est le narrateur.
-2. IMMERSION TOTALE : Efface toute trace de l'interview. N'inclus jamais les questions de l'IA. Ne mentionne pas le mot "transcript", "interview" ou "IA".
-3. FIDÉLITÉ ABSOLUE : C'est la règle la plus importante. N'ajoute AUCUN fait, détail, lieu, personne, émotion ou événement qui n'est PAS explicitement dit par l'utilisateur. Si le transcript est court, le récit DOIT être court. Ne comble JAMAIS les vides.
-4. TON ET STYLE : Écris de façon simple et naturelle. Garde le vocabulaire et le ton de l'utilisateur. Pas de langage littéraire ou poétique.
-5. NETTOYAGE : Corrige les tics de langage oraux et les erreurs de transcription, sans modifier le sens.
-6. LONGUEUR : Le texte doit être proportionnel au contenu du transcript. Ne rallonge JAMAIS en inventant.
+# STRICT RULES
+1. POINT OF VIEW: The story MUST be written in the first person singular ("I"). The user is the narrator.
+2. FULL IMMERSION: Remove all traces of the interview. Never include the AI's questions. Never mention the words "transcript", "interview", or "AI".
+3. ABSOLUTE FIDELITY: This is the most important rule. Do not add ANY fact, detail, place, person, emotion, or event that the user did not explicitly mention. If the transcript is short, the story MUST stay short. Never fill in gaps.
+4. STYLE: Write in simple, natural English. Keep the user's tone and vocabulary. Do not become literary or poetic.
+5. CLEANUP: Remove spoken tics and obvious transcription glitches without changing the meaning.
+6. LENGTH: The text must stay proportional to the transcript. Never make it longer by inventing material.
 
-# FORMAT DE SORTIE
-Réponds UNIQUEMENT avec le récit en français. Ne génère aucune phrase d'introduction, d'explication ou de conclusion."""
+# OUTPUT FORMAT
+Reply ONLY with the story in English. Do not add any introduction, explanation, or conclusion."""
 
 
 def generate_story_local(transcript: str) -> str | None:
@@ -34,9 +34,9 @@ def generate_story_local(transcript: str) -> str | None:
     # Filtrer pour ne garder QUE les paroles de l'utilisateur
     # → Le LLM ne voit pas les questions de l'IA (qui peuvent contenir des erreurs/résumés)
     user_lines = [
-        line.replace("[Utilisateur]: ", "").replace("[Vous]: ", "")
+        line.replace("[Utilisateur]: ", "").replace("[Vous]: ", "").replace("[User]: ", "")
         for line in transcript.split("\n")
-        if line.startswith("[Utilisateur]:") or line.startswith("[Vous]:")
+        if line.startswith("[Utilisateur]:") or line.startswith("[Vous]:") or line.startswith("[User]:")
     ]
     user_only = "\n".join(user_lines)
 
@@ -44,7 +44,7 @@ def generate_story_local(transcript: str) -> str | None:
         print("⚠️ Aucune parole utilisateur trouvée dans le transcript.")
         return None
 
-    user_prompt = f"Voici ce que la personne a raconté :\n\n{user_only}\n\nRédige maintenant le récit."
+    user_prompt = f"Here is what the person said:\n\n{user_only}\n\nNow write the story."
 
     try:
         start = time.time()
@@ -69,4 +69,3 @@ def generate_story_local(transcript: str) -> str | None:
 if __name__ == "__main__":
     test = "[IA]: Racontez un souvenir marquant.\n[Utilisateur]: Ma première bicyclette, rouge, à 8 ans."
     print(generate_story_local(test))
-
