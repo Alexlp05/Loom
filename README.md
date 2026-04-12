@@ -88,7 +88,6 @@ Loom/
 │   └── electronics/
 │       ├── wiring-diagram.md
 │       └── schematics/
-│           ├── wiring-diagram.drawio
 │           └── wiring-diagram.png
 └── .gitignore
 ```
