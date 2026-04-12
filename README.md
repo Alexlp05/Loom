@@ -1,4 +1,4 @@
-# Loom Collection — The Teller
+# Loom Collection - The Teller
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](./software/server/requirements.txt)
 [![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%20%2B%20PC-green)](./docs/architecture-diagram.md)
 [![Academic Project](https://img.shields.io/badge/ESILV-Creative%20Technology%20Master-orange)](./docs/user-journey.md)
