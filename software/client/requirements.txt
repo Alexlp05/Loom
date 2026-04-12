@@ -1,0 +1,11 @@
+# Documentation-requested Raspberry Pi dependencies
+pyaudio
+websocket-client
+RPi.GPIO
+
+# Current repository client implementation
+numpy
+sounddevice
+soundfile
+websockets
+gpiozero

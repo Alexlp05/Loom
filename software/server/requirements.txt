@@ -1,0 +1,19 @@
+# Core server stack
+faster-whisper
+ollama
+kokoro
+websockets
+
+# Documentation-requested web layer dependency
+flask
+
+# Current repository web/API implementation
+fastapi
+uvicorn
+python-multipart
+
+# Audio / data utilities used by the current server code
+numpy
+soundfile
+
+# sqlite3 is provided by the Python standard library
