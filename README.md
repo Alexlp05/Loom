@@ -8,8 +8,7 @@
 
 Loom Collection is a family of AI voice assistants embedded in vintage everyday objects and designed to support older adults through familiar, tangible interactions. The project explores how embodied conversational AI can create warmer and more accessible experiences than screen-based systems. **The Teller** is the flagship prototype: a GPO 746 vintage telephone containing a Raspberry Pi 5 that supports voice-based memory-sharing conversations with an AI. Each conversation is transcribed, turned into a story, and stored in a chronological web timeline that can later be accessed by family members.
 
-![Prototype Photo](docs/images/teller-prototype.jpg)
-![Architecture Diagram](docs/images/architecture.png)
+
 
 ## Loom Collection
 - **The Teller**: Prototyped vintage telephone for voice-based memory collection and storytelling.
