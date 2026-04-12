@@ -9,7 +9,7 @@
 | Telephone handset (original) | 1 | Microphone + earpiece for user |
 | RJ-style handset cable/connector | 1 | Handset wiring to sound card |
 | Hook switch (integrated in phone) | 1 | On-hook / off-hook detection via GPIO |
-| 3.5mm TRS screw terminal adapter | 1-2 | Audio prototyping interface (mic + speaker) |
+| 3.5mm TRS screw terminal adapter | 2 | Audio prototyping interface (mic + speaker) |
 | Jumper wires / hookup wires | 2 | Internal wiring |
 | USB-C 5V 3A power supply | 1 | Powers the Raspberry Pi |
 | PC with NVIDIA GPU | 1 | Runs AI server (STT, LLM, TTS) |
