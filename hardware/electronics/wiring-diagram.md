@@ -27,6 +27,8 @@ The handset uses a 4-wire RJ-style connection. Signal labels: MIC+, MIC-, EAR+, 
 - Raspberry Pi ↔ PC server via Wi-Fi or mobile hotspot
 - Protocol: WebSocket (bidirectional audio streaming)
 
+Visual schematics are available in the `schematics/` folder as `wiring-diagram.drawio` and `wiring-diagram.png`.
+
 ## ASCII Diagram
 ```text
 ┌─────────────────────────────────────┐

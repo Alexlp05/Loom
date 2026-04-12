@@ -85,11 +85,11 @@ Loom/
 ├── hardware/
 │   ├── BOM.md
 │   ├── assembly-instructions.md
-│   └── schematics/
-│       └── .gitkeep
-├── electronics/
-│   ├── BOM.md
-│   └── wiring-diagram.md
+│   └── electronics/
+│       ├── wiring-diagram.md
+│       └── schematics/
+│           ├── wiring-diagram.drawio
+│           └── wiring-diagram.png
 └── .gitignore
 ```
 
