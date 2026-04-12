@@ -1,13 +1,16 @@
 # Hardware Bill of Materials
 
-| Component | Quantity | Notes |
+| Component | Qty | Role |
 |---|---:|---|
-| Raspberry Pi 5 | 1 | Main embedded computing platform inside the phone |
-| microSD card (32GB+) | 1 | Operating system and local client software |
-| USB sound card | 1 | Audio input/output interface for handset microphone and speaker |
-| GPO 746 vintage telephone | 1 | Main enclosure and interaction object |
-| Hook switch (integrated in phone) | 1 | Existing mechanical hook used for session start/stop |
-| RJ9 handset with speaker + microphone | 1 | Telephone handset for voice interaction |
-| USB-C 5V 3A power supply | 1 | Power for the Raspberry Pi 5 |
-| Jumper wires | 1 set | GPIO and internal wiring connections |
-| PC with NVIDIA GPU (server) | 1 | Hosts AI processing pipeline and web timeline |
+| GPO 746 vintage telephone | 1 | Physical enclosure and interaction interface |
+| Raspberry Pi 5 | 1 | Main embedded controller |
+| microSD card (32GB+) | 1 | OS and client software |
+| USB sound card | 1 | Audio input/output interface |
+| Telephone handset (original) | 1 | Microphone + earpiece for user |
+| RJ-style handset cable/connector | 1 | Handset wiring to sound card |
+| Hook switch (integrated in phone) | 1 | On-hook / off-hook detection via GPIO |
+| 3.5mm TRS screw terminal adapter | 1-2 | Audio prototyping interface (mic + speaker) |
+| Jumper wires / hookup wires | ~10 | Internal wiring |
+| USB-C 5V 3A power supply | 1 | Powers the Raspberry Pi |
+| PC with NVIDIA GPU | 1 | Runs AI server (STT, LLM, TTS) |
+| Network connection (Wi-Fi / hotspot) | — | Pi ↔ PC communication |
